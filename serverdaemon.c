@@ -25,7 +25,23 @@
 #define PORT "3490"
 #define DEFAULT_LOGFLAG 0
 #define BACKLOG 10
+#define DAEMON_NAME "serverDaemon"
+#define PID_FILE "serverDaemon.pid"
 
+void signal_handler(int sig)
+{
+	switch(sig){
+		case SIGHUP:
+					syslog(LOG_WARNING, "Received SIGHUP signal.");
+					break;
+		case SIGTERM:
+					syslog(LOG_WARNING, "Received SIGTERM signal.");
+					break;
+		default:
+					syslog(LOG_WARNING, "Unhandled signal (%d) %s", strsignal(sig));
+					break;
+	}
+}
 
 void sigchld_handler(int s)
 {
@@ -43,22 +59,27 @@ void *get_in_addr(struct sockaddr *sa)
 
 int main(int argc, char **argv)
 {
-
+	
+	signal(SIGHUP, signal_handler);
+	signal(SIGTERM, signal_handler);
+	signal(SIGINT, signal_handler);
+	signal(SIGQUIT, signal_handler);
 	static int ch, logflag;
-	pid_t pid, sid;
+	pid_t pid = 0, sid;
 
 	logflag = DEFAULT_LOGFLAG;
+	
 
-	while((ch = getopt(argc, argv, "lp:")) != -1){
+
+	while((ch = getopt(argc, argv, "l:")) != -1){
 		switch(ch){
-		case 'l':
-						logflag = 1;
-						break;
+			case 'l':
+							logflag = 1;
+							break;
 		}
 	}
-
 	pid = fork();
-
+	printf("\nStarting process: %d", (int)pid);
 	if(pid < 0){
 		exit(EXIT_FAILURE);
 	}else if (pid > 0){
@@ -79,6 +100,11 @@ int main(int argc, char **argv)
 	
 	if(logflag == 1)
 		syslog(LOG_NOTICE, " started by User %d", getuid());
+	
+	
+	close(STDIN_FILENO);
+	close(STDOUT_FILENO);
+	close(STDERR_FILENO);
 
 	while(1){
 		int sockfd, new_fd; //Listen on sock_fd, new conn on new_fd
@@ -102,18 +128,18 @@ int main(int argc, char **argv)
 
 		for(p = servinfo; p != NULL; p = p->ai_next){
 			if((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-				perror("server: socket");
+				perror("\nserver: socket");
 				continue;
 			}
 
 			if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
-				perror("setsockopt");
+				perror("\nsetsockopt");
 				exit(1);
 			}
 
 			if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1){
 				close(sockfd);
-				perror("server: bind");
+				perror("\nserver: bind");
 				continue;
 			}
 			break;
@@ -135,22 +161,22 @@ int main(int argc, char **argv)
 		sigemptyset(&sa.sa_mask);
 		sa.sa_flags = SA_RESTART;
 		if(sigaction(SIGCHLD, &sa, NULL) == -1){
-			perror("sigaction");
+			perror("\nsigaction");
 			exit(1);
 		}
 
-		printf("server: waiting for connections...\n");
+		printf("\nserver: waiting for connections...\n");
 		
 		while(1){
 			sin_size = sizeof their_addr;
 			new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
 			if(new_fd == -1){
-				perror("accept");
+				perror("\naccept");
 				continue;
 			}
 
 			inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
-			printf("server: got connection from %s\n", s);
+			printf("\nserver: got connection from %s\n", s);
 
 			if(!fork()){
 				close(sockfd);
